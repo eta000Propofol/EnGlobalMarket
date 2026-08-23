@@ -1,0 +1,65 @@
+# ============================================================
+# EnGlobalMarket 全球市场插件 配置文件
+# 修改后使用 /market reload 重载，或重启服务器
+# 颜色代码使用 & 符号，例如 &a &b &c &6 &7
+# ============================================================
+
+# ---------------- 经济设置 ----------------
+economy:
+  # 成交税率（小数）：0.05 = 5%
+  # 税从卖家所得中扣除，买家支付挂牌价（整组总价）
+  tax-rate: 0.05
+  # 货币显示名称
+  currency-name: "货币"
+
+# ---------------- 市场设置 ----------------
+market:
+  # 商品未售出多少天后自动下架退回（0 = 立即过期，用于测试）
+  expire-days: 7
+  # 每名玩家同时上架的最大商品数
+  max-listings-per-player: 20
+  # 过期商品检查间隔（分钟）
+  check-interval-minutes: 5
+
+# ---------------- 界面标题 ----------------
+gui:
+  market-title: "&8全球市场"
+  create-title: "&8创建商品"
+  confirm-title: "&8确认购买"
+  manage-title: "&8我的商品"
+  manage-item-title: "&8商品管理"
+  claim-title: "&8收货箱"
+
+# ---------------- 提示消息 ----------------
+messages:
+  no-permission: "&c你没有权限执行此命令。"
+  not-player: "&c该命令只能由玩家执行。"
+  no-economy: "&c服务器未接入经济插件（Vault），无法使用市场。"
+  create-no-item: "&c请先把要出售的物品放入第一格。"
+  create-no-price: "&c请先设置价格。"
+  create-too-many: "&c你同时上架的商品已达上限（%max% 个）。"
+  create-limit-stack: "&c一次最多出售 %max% 个（原版堆叠上限）。"
+  create-fail: "&c上架失败，请稍后重试。"
+  create-success: "&a上架成功！商品已出现在全球市场。"
+  invalid-price: "&c价格无效，请输入大于 0 的数字（不超过 10 亿）。"
+  price-prompt: "&a请在聊天栏输入价格，例如 &f123.45&a。"
+  price-prompt-hint: "&7输入 &fcancel &7取消；&f60 秒&7内未输入将自动取消。"
+  price-cancelled: "&e已取消价格输入。"
+  price-set: "&a价格已设置为 &6%price%。"
+  buy-success: "&a购买成功！共花费 &6%price%。"
+  buy-sold: "&c该商品已被购买或下架。"
+  buy-own: "&c不能购买自己的商品。"
+  buy-no-money: "&c余额不足！需要 &6%price%。"
+  sold-notify: "&a你的商品「%item%」已售出，扣除税费后到账 &6%proceeds%。"
+  delist-success: "&a已下架，物品已退回你的背包。"
+  not-owner: "&c你不是该商品的所有者。"
+  price-change-success: "&a价格已修改为 &6%price%。"
+  inventory-full: "&c背包已满，物品已放入收货箱。"
+  claim-success: "&a已领取 %amount% 个「%item%」。"
+  claim-pending: "&e你有 %count% 件商品在收货箱中待领取，背包空间不足。"
+  claim-delivered: "&a已自动领取 %count% 件商品。"
+  expired-notify: "&e你的商品「%item%」超过 %days% 天未售出，已自动下架并放入收货箱。"
+  reload-success: "&a配置已重载。"
+
+
+

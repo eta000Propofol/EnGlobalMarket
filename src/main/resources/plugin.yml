@@ -1,0 +1,19 @@
+name: EnGlobalMarket
+version: '${version}'
+main: com.englobalmarket.EnGlobalMarket
+api-version: '26.1'
+authors: [EzPlugins]
+description: 全球市场插件：箱子 GUI 上架/购买商品、Vault 经济、税率、未售出自动下架
+softdepend: [Vault]
+commands:
+  market:
+    description: 打开全球市场
+    usage: /market
+    aliases: [gm, globalmarket]
+permissions:
+  englobalmarket.use:
+    description: 允许使用全球市场
+    default: true
+  englobalmarket.admin:
+    description: 管理权限（重载配置）
+    default: op
