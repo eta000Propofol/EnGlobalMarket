@@ -1,0 +1,11 @@
+# 构建产物
+build/
+.gradle/
+
+# 本地测试/临时目录
+.servertest/
+
+# IDE
+.idea/
+*.iml
+.vscode/
