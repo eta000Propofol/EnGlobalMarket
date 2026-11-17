@@ -3,10 +3,10 @@
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/eta000Propofol/EnGlobalMarket?sort=semver)](https://github.com/eta000Propofol/EnGlobalMarket/releases/latest)
 [![Build](https://github.com/eta000Propofol/EnGlobalMarket/actions/workflows/build.yml/badge.svg)](https://github.com/eta000Propofol/EnGlobalMarket/actions/workflows/build.yml)
-[![Server](https://img.shields.io/badge/Paper-26.1.2-8A2BE2)](https://papermc.io/downloads)
+[![Server](https://img.shields.io/badge/Paper-26.x-8A2BE2)](https://papermc.io/downloads)
 [![Java](https://img.shields.io/badge/Java-25%2B-orange)]()
 
-> 适用于 Paper 26.1.2（Java 25+）的轻量级全球市场插件：箱子 GUI 上架/购买商品，Vault 货币结算。
+> 适用于 Paper 26.x（26.1.2 起，Java 25+）的轻量级全球市场插件：箱子 GUI 上架/购买商品，Vault 货币结算。
 
 ## 简介
 
@@ -28,7 +28,7 @@
 
 | 依赖 | 说明 |
 | --- | --- |
-| [Paper 26.1.2](https://papermc.io/downloads) | 服务端（需 Java 25+） |
+| [Paper 26.x](https://papermc.io/downloads) | 服务端，26.1.2 / 26.2 / 26.3 均可（需 Java 25+）。插件按 26.1.2 API 编译、`api-version` 为 26.1，1.21.x 及更低版本会拒绝加载 |
 | [Vault](https://www.spigotmc.org/resources/vault.34315/) | 经济接口，需要已注册的经济实现（如 EssentialsX / CMI 等） |
 
 > 未安装 Vault（或 Vault 没有可用经济实现）时插件仍会加载，但所有交易操作都会
@@ -36,7 +36,7 @@
 
 ## 安装
 
-1. 服务器安装 Paper 26.1.2（需 Java 25+）。
+1. 服务器安装 Paper 26.x（26.1.2 或更高，需 Java 25+）。
 2. 安装 Vault 以及任意经济插件（如 EssentialsX / CMI / 其他支持 Vault 的经济插件）。
 3. 把 `build/libs/EnGlobalMarket-<版本>.jar` 放入服务器的 `plugins` 文件夹。
 4. 启动服务器，插件会自动生成 `plugins/EnGlobalMarket/config.yml` 和 `market.db`。

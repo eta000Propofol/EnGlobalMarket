@@ -20,6 +20,9 @@ repositories {
 
 dependencies {
     // Paper API（编译期，服务器自带）
+    // 编译基线取 26.x 里最低的可用坐标（26.1 系列只发布过 26.1.2 的 paper-api），
+    // 配合 plugin.yml 的 api-version: 26.1，即可在 26.1.2 / 26.2 / 26.3 上加载。
+    // 换成更高版本会引入 26.2+ 才有的 API，导致低版本 26.x 运行时报 NoSuchMethodError。
     compileOnly("io.papermc.paper:paper-api:26.1.2.build.74-stable")
     // Vault API（编译期，服务器需安装 Vault + 经济插件）
     compileOnly("com.github.MilkBowl:VaultAPI:1.7.1")
