@@ -2,6 +2,7 @@ package com.englobalmarket.service;
 
 import com.englobalmarket.model.Claim;
 import com.englobalmarket.model.Listing;
+import com.englobalmarket.model.PendingOp;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -19,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@DisplayName("TradingCore 交易原子性与补偿回滚")
+@DisplayName("TradingCore 交易原子性、补偿回滚与崩溃恢复")
 class TradingCoreTest {
 
     private static final BigDecimal TAX5 = new BigDecimal("0.05");
@@ -41,7 +42,7 @@ class TradingCoreTest {
         events = new ArrayList<>();
         store.events = events;
         economy.events = events;
-        core = new TradingCore(store, economy, audit::add);
+        core = new TradingCore(store, economy, store, audit::add);
         economy.setBalance(buyer, "200.00");
     }
 
@@ -55,6 +56,11 @@ class TradingCoreTest {
         }
     }
 
+    private PendingOp onlyPending() {
+        assertEquals(1, store.pendingOps.size(), "应恰好有一条流水，实际: " + store.pendingOps.values());
+        return store.pendingOps.values().iterator().next();
+    }
+
     // ---------------- 购买 ----------------
 
     @Nested
@@ -62,7 +68,7 @@ class TradingCoreTest {
     class Purchase {
 
         @Test
-        @DisplayName("成功：删记录 → 扣买家 → 给卖家税后入账")
+        @DisplayName("成功：删记录 → 扣买家 → 给卖家税后入账，流水停在 PAID")
         void successMovesMoneyAndRemovesListing() {
             Listing listing = store.putListing(seller, "100.00");
 
@@ -79,23 +85,55 @@ class TradingCoreTest {
                     () -> assertEquals(0, new BigDecimal("95.00").compareTo(economy.balanceOf(seller)), "卖家余额"),
                     // 税额（5.00）不进入任何账户
                     () -> assertEquals(0, new BigDecimal("195.00")
-                            .compareTo(economy.balanceOf(buyer).add(economy.balanceOf(seller)))));
+                            .compareTo(economy.balanceOf(buyer).add(economy.balanceOf(seller)))),
+                    () -> assertEquals(PendingOp.Stage.PAID, onlyPending().stage(), "交付前流水必须留在 PAID"),
+                    () -> assertTrue(result.pendingId() > 0));
         }
 
         @Test
-        @DisplayName("先删记录再动钱：扣款发生在认领商品之后")
-        void deletesBeforeCharging() {
+        @DisplayName("交付完成后流水结清")
+        void deliveryClearsJournal() {
+            Listing listing = store.putListing(seller, "100.00");
+            TradingCore.PurchaseResult result = core.purchase(buyer, listing.id(), null, TAX5);
+
+            assertTrue(core.completeDelivery(result.pendingId()));
+            assertAll(
+                    () -> assertTrue(store.pendingOps.isEmpty(), "流水应已删除"),
+                    () -> assertTrue(events.contains("deletePendingOp:" + result.pendingId())));
+        }
+
+        @Test
+        @DisplayName("删记录前先写流水：崩溃后才知道要回滚什么")
+        void journalIsWrittenBeforeClaimingItem() {
             Listing listing = store.putListing(seller, "100.00");
 
             core.purchase(buyer, listing.id(), null, TAX5);
 
+            int journal = indexOf("addPendingOp:CLAIMED");
             int delete = indexOf("deleteListing:" + listing.id());
             int withdraw = indexOf("withdraw:" + buyer);
             int deposit = indexOf("deposit:" + seller);
             assertAll(
-                    () -> assertTrue(delete >= 0, "未删除记录"),
+                    () -> assertTrue(journal >= 0, "未写流水"),
+                    () -> assertTrue(delete > journal, "流水应早于删除记录"),
                     () -> assertTrue(withdraw > delete, "扣款应在删除记录之后"),
                     () -> assertTrue(deposit > withdraw, "入账应在扣款之后"));
+        }
+
+        @Test
+        @DisplayName("流水写入失败：直接中止，不动物品也不动钱")
+        void journalFailureAbortsPurchase() {
+            Listing listing = store.putListing(seller, "100.00");
+            store.failAddPendingOp = true;
+
+            TradingCore.PurchaseResult result = core.purchase(buyer, listing.id(), null, TAX5);
+
+            assertAll(
+                    () -> assertEquals(TradingCore.Status.FAILED, result.status()),
+                    () -> assertTrue(store.listings.containsKey(listing.id()), "商品应还在"),
+                    () -> assertEquals(0, new BigDecimal("200.00").compareTo(economy.balanceOf(buyer))),
+                    () -> assertFalse(events.contains("deleteListing:" + listing.id())),
+                    () -> assertTrue(store.pendingOps.isEmpty()));
         }
 
         @Test
@@ -165,7 +203,8 @@ class TradingCoreTest {
                     () -> assertEquals(TradingCore.Status.FAILED, result.status()),
                     () -> assertEquals(0, new BigDecimal("200.00").compareTo(economy.balanceOf(buyer))),
                     () -> assertFalse(events.contains("withdraw:" + buyer)),
-                    () -> assertFalse(audit.isEmpty(), "应记录告警"));
+                    () -> assertFalse(audit.isEmpty(), "应记录告警"),
+                    () -> assertTrue(store.pendingOps.isEmpty(), "中止后流水应清理掉"));
         }
 
         @Test
@@ -182,7 +221,8 @@ class TradingCoreTest {
                     () -> assertEquals(listing, store.listings.get(listing.id()), "恢复的应是原记录"),
                     () -> assertEquals(0, new BigDecimal("200.00").compareTo(economy.balanceOf(buyer))),
                     () -> assertEquals(0, BigDecimal.ZERO.compareTo(economy.balanceOf(seller))),
-                    () -> assertEveryEventExists("deleteListing:" + listing.id(), "restoreListing:" + listing.id()));
+                    () -> assertEveryEventExists("deleteListing:" + listing.id(), "restoreListing:" + listing.id()),
+                    () -> assertTrue(store.pendingOps.isEmpty()));
         }
 
         @Test
@@ -214,22 +254,32 @@ class TradingCoreTest {
                     () -> assertEquals(0, new BigDecimal("200.00").compareTo(economy.balanceOf(buyer)), "买家应已退款"),
                     () -> assertEquals(0, BigDecimal.ZERO.compareTo(economy.balanceOf(seller))),
                     () -> assertEveryEventExists("restoreListing:" + listing.id(),
-                            "deposit:" + buyer, "deposit:" + seller));
+                            "deposit:" + buyer, "deposit:" + seller),
+                    () -> assertTrue(store.pendingOps.isEmpty()));
         }
 
         @Test
-        @DisplayName("退款也失败时：记录仍会恢复，并记录严重告警")
-        void refundFailureStillRestoresListing() {
+        @DisplayName("P1 退款失败：商品绝不重新上架，流水冻结为 REFUND_PENDING")
+        void refundFailureFreezesListingInsteadOfRestoring() {
             Listing listing = store.putListing(seller, "100.00");
             economy.denyAllDeposits = true;
 
             TradingCore.PurchaseResult result = core.purchase(buyer, listing.id(), null, TAX5);
 
+            PendingOp frozen = onlyPending();
             assertAll(
                     () -> assertEquals(TradingCore.Status.FAILED, result.status()),
-                    () -> assertTrue(store.listings.containsKey(listing.id())),
-                    () -> assertEquals(1, audit.size(), "应有一条告警: " + audit),
-                    () -> assertTrue(audit.get(0).contains("入账失败")));
+                    () -> assertFalse(store.listings.containsKey(listing.id()),
+                            "买家钱已扣、退款失败时商品不能再回到市场"),
+                    () -> assertEquals(0, new BigDecimal("100.00").compareTo(economy.balanceOf(buyer)),
+                            "买家确实被扣了款（等待重试退款）"),
+                    () -> assertEquals(0, BigDecimal.ZERO.compareTo(economy.balanceOf(seller))),
+                    () -> assertEquals(PendingOp.Stage.REFUND_PENDING, frozen.stage()),
+                    () -> assertEquals(0, new BigDecimal("100.00").compareTo(frozen.amount()),
+                            "流水里要留下应退金额"),
+                    () -> assertEquals(seller, frozen.targetUuid(), "商品归还对象是卖家"),
+                    () -> assertFalse(events.contains("restoreListing:" + listing.id())),
+                    () -> assertTrue(audit.stream().anyMatch(m -> m.startsWith("严重")), "应记严重日志: " + audit));
         }
 
         @Test
@@ -271,6 +321,21 @@ class TradingCoreTest {
         }
 
         @Test
+        @DisplayName("阶段写入失败：回滚并按故障返回，不留流水")
+        void stageWriteFailureRollsBack() {
+            Listing listing = store.putListing(seller, "100.00");
+            store.failUpdatePendingOp = true;
+
+            TradingCore.PurchaseResult result = core.purchase(buyer, listing.id(), null, TAX5);
+
+            assertAll(
+                    () -> assertEquals(TradingCore.Status.FAILED, result.status()),
+                    () -> assertTrue(store.listings.containsKey(listing.id()), "商品应恢复"),
+                    () -> assertEquals(0, new BigDecimal("200.00").compareTo(economy.balanceOf(buyer))),
+                    () -> assertFalse(events.contains("withdraw:" + buyer), "阶段写不进去就不该扣款"));
+        }
+
+        @Test
         @DisplayName("同一件商品只能成交一次")
         void secondPurchaseSeesGone() {
             Listing listing = store.putListing(seller, "100.00");
@@ -285,6 +350,131 @@ class TradingCoreTest {
                             "不能被扣两次款"),
                     () -> assertEquals(0, new BigDecimal("95.00").compareTo(economy.balanceOf(seller)),
                             "不能重复入账"));
+        }
+    }
+
+    // ---------------- 崩溃恢复 ----------------
+
+    @Nested
+    @DisplayName("崩溃恢复")
+    class Recovery {
+
+        private PendingOp op(PendingOp.Stage stage) {
+            return store.putPendingOp(new PendingOp(0, PendingOp.Kind.PURCHASE, stage, buyer, null,
+                    new BigDecimal("100.00"), new BigDecimal("95.00"), seller, "卖家", null,
+                    7, "测试", 1_000L));
+        }
+
+        @Test
+        @DisplayName("CLAIMED（商品已被认领、钱未动）：恢复上架")
+        void claimedRestoresListing() {
+            PendingOp pending = op(PendingOp.Stage.CLAIMED);
+
+            assertEquals(TradingCore.Recovery.RESOLVED, core.recover(pending));
+            assertAll(
+                    () -> assertTrue(store.listings.containsKey(7), "商品应放回市场"),
+                    () -> assertEquals(0, new BigDecimal("100.00")
+                            .compareTo(store.listings.get(7).price())),
+                    () -> assertTrue(store.pendingOps.isEmpty()));
+        }
+
+        @Test
+        @DisplayName("CLAIMED 但商品已在市场（上次只是流水没删）：不重复恢复、不复制物品")
+        void claimedSkipsWhenAlreadyRestored() {
+            PendingOp pending = op(PendingOp.Stage.CLAIMED);
+            store.listings.put(7, new Listing(7, seller, "卖家", null, new BigDecimal("100.00"), 1_000L));
+
+            assertEquals(TradingCore.Recovery.RESOLVED, core.recover(pending));
+            assertAll(
+                    () -> assertEquals(1, store.listings.size(), "不能恢复出第二件"),
+                    () -> assertTrue(store.claims.isEmpty(), "也不能转去收货箱"),
+                    () -> assertTrue(store.pendingOps.isEmpty()));
+        }
+
+        @Test
+        @DisplayName("CHARGED（买家已扣款）：退款并上架")
+        void chargedRefundsAndRestores() {
+            PendingOp pending = op(PendingOp.Stage.CHARGED);
+            economy.setBalance(buyer, "100.00");
+
+            assertEquals(TradingCore.Recovery.RESOLVED, core.recover(pending));
+            assertAll(
+                    () -> assertEquals(0, new BigDecimal("200.00").compareTo(economy.balanceOf(buyer)),
+                            "买家应退款"),
+                    () -> assertTrue(store.listings.containsKey(7)),
+                    () -> assertTrue(store.pendingOps.isEmpty()));
+        }
+
+        @Test
+        @DisplayName("CHARGED 但退款仍失败：转 REFUND_PENDING，商品不上架")
+        void chargedRefundFailureKeepsFrozen() {
+            PendingOp pending = op(PendingOp.Stage.CHARGED);
+            economy.denyAllDeposits = true;
+
+            assertEquals(TradingCore.Recovery.RETRY, core.recover(pending));
+            assertAll(
+                    () -> assertEquals(PendingOp.Stage.REFUND_PENDING, store.pendingOps.get(pending.id()).stage()),
+                    () -> assertFalse(store.listings.containsKey(7), "退款失败时不能上架"));
+        }
+
+        @Test
+        @DisplayName("REFUND_PENDING：退款成功转 REFUNDED，再把商品还回卖家收货箱")
+        void refundPendingEventuallyReturnsItem() {
+            PendingOp pending = op(PendingOp.Stage.REFUND_PENDING);
+            // 冻结时买家已经被扣过款：余额 200 → 100
+            economy.setBalance(buyer, "100.00");
+
+            assertEquals(TradingCore.Recovery.RETRY, core.recover(pending));
+            assertEquals(PendingOp.Stage.REFUNDED, store.pendingOps.get(pending.id()).stage());
+            assertEquals(TradingCore.Recovery.RESOLVED, core.recover(store.pendingOps.get(pending.id())));
+            assertAll(
+                    () -> assertEquals(0, new BigDecimal("200.00").compareTo(economy.balanceOf(buyer)),
+                            "退款后应回到 200"),
+                    () -> assertEquals(1, store.claims.size(), "商品应进入卖家收货箱"),
+                    () -> assertEquals(seller, store.claims.values().iterator().next().ownerUuid()),
+                    () -> assertTrue(store.pendingOps.isEmpty()));
+        }
+
+        @Test
+        @DisplayName("REFUNDED 但收货箱写入失败：流水保留，下次重试")
+        void refundedRetriesWhenClaimFails() {
+            PendingOp pending = op(PendingOp.Stage.REFUNDED);
+            store.failAddClaim = true;
+
+            assertEquals(TradingCore.Recovery.RETRY, core.recover(pending));
+            assertEquals(PendingOp.Stage.REFUNDED, store.pendingOps.get(pending.id()).stage());
+        }
+
+        @Test
+        @DisplayName("PAID：交给调用方补发物品")
+        void paidNeedsPlayerDelivery() {
+            PendingOp pending = op(PendingOp.Stage.PAID);
+
+            assertEquals(TradingCore.Recovery.NEEDS_PLAYER, core.recover(pending));
+            assertTrue(store.pendingOps.containsKey(pending.id()));
+        }
+
+        @Test
+        @DisplayName("CHARGING / PAYING：钱到底动没动无法判定，不自动处理")
+        void ambiguousStagesNeedManualReview() {
+            PendingOp charging = op(PendingOp.Stage.CHARGING);
+            PendingOp paying = store.putPendingOp(new PendingOp(0, PendingOp.Kind.PURCHASE,
+                    PendingOp.Stage.PAYING, buyer, null, new BigDecimal("100.00"),
+                    new BigDecimal("95.00"), seller, "卖家", null, 8, null, 1_000L));
+
+            assertAll(
+                    () -> assertEquals(TradingCore.Recovery.NEEDS_MANUAL, core.recover(charging)),
+                    () -> assertEquals(TradingCore.Recovery.NEEDS_MANUAL, core.recover(paying)),
+                    () -> assertEquals(0, new BigDecimal("200.00").compareTo(economy.balanceOf(buyer)),
+                            "不确认就不许动钱"),
+                    () -> assertFalse(store.listings.containsKey(7), "也不许擅自上架"),
+                    () -> assertEquals(2, store.pendingOps.size(), "流水必须保留给人看"),
+                    () -> assertTrue(pendingOpStage(charging).needsManualReview()),
+                    () -> assertTrue(pendingOpStage(paying).needsManualReview()));
+        }
+
+        private PendingOp.Stage pendingOpStage(PendingOp pending) {
+            return store.pendingOps.get(pending.id()).stage();
         }
     }
 
@@ -400,7 +590,7 @@ class TradingCoreTest {
     class ClaimItems {
 
         @Test
-        @DisplayName("成功：记录先删除，物品与原因一并返回")
+        @DisplayName("成功：记录删除与投递流水同时生效，结清后流水消失")
         void success() {
             Claim claim = store.putClaim(buyer, Claim.REASON_EXPIRED);
 
@@ -410,7 +600,33 @@ class TradingCoreTest {
                     () -> assertEquals(TradingCore.Status.SUCCESS, result.status()),
                     () -> assertEquals(Claim.REASON_EXPIRED, result.reason(), "原因要保留，部分领取时按原原因回库"),
                     () -> assertFalse(store.claims.containsKey(claim.id())),
-                    () -> assertNotNull(events.stream().filter(e -> e.startsWith("deleteClaim:")).findFirst().orElse(null)));
+                    () -> assertEquals(PendingOp.Stage.DELIVERY_PENDING, onlyPending().stage()),
+                    () -> assertEquals(PendingOp.Kind.DELIVERY, onlyPending().kind()),
+                    () -> assertTrue(result.pendingId() > 0),
+                    () -> assertTrue(events.contains("moveClaimToDelivery:" + claim.id())));
+        }
+
+        @Test
+        @DisplayName("交付完成才结清流水")
+        void completeDeliveryClearsJournal() {
+            Claim claim = store.putClaim(buyer, Claim.REASON_OVERFLOW);
+
+            TradingCore.ClaimResult result = core.claim(buyer, claim.id());
+
+            assertTrue(core.completeDelivery(result.pendingId()));
+            assertTrue(store.pendingOps.isEmpty());
+        }
+
+        @Test
+        @DisplayName("结清失败：告警提示可能重复投递")
+        void completeDeliveryFailureWarns() {
+            Claim claim = store.putClaim(buyer, Claim.REASON_OVERFLOW);
+            TradingCore.ClaimResult result = core.claim(buyer, claim.id());
+            store.failDeletePendingOp = true;
+
+            assertAll(
+                    () -> assertFalse(core.completeDelivery(result.pendingId())),
+                    () -> assertTrue(audit.stream().anyMatch(m -> m.contains("重复投递"))));
         }
 
         @Test
@@ -435,10 +651,10 @@ class TradingCoreTest {
         }
 
         @Test
-        @DisplayName("删除失败：不发物品，记录仍在")
-        void deleteFailureDoesNotDeliver() {
+        @DisplayName("事务失败：不发物品，记录仍在，也不留流水")
+        void transactionFailureDoesNotDeliver() {
             Claim claim = store.putClaim(buyer, Claim.REASON_EXPIRED);
-            store.failDeleteClaim = true;
+            store.failMoveClaimToDelivery = true;
 
             TradingCore.ClaimResult result = core.claim(buyer, claim.id());
 
@@ -446,6 +662,7 @@ class TradingCoreTest {
                     () -> assertEquals(TradingCore.Status.FAILED, result.status()),
                     () -> assertNull(result.item(), "失败时不应交出物品"),
                     () -> assertTrue(store.claims.containsKey(claim.id())),
+                    () -> assertTrue(store.pendingOps.isEmpty()),
                     () -> assertFalse(audit.isEmpty()));
         }
     }
