@@ -11,6 +11,7 @@ import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -25,7 +26,7 @@ public class CreateGui extends BaseGui {
     public static final int CANCEL_SLOT = 7;
     public static final int CONFIRM_SLOT = 8;
 
-    private double price = 0;
+    private BigDecimal price;
 
     public CreateGui(EnGlobalMarket plugin, Player player) {
         super(plugin, player, 9, "create-title");
@@ -51,15 +52,16 @@ public class CreateGui extends BaseGui {
                 "&7成交后收取税率: &f" + (int) (plugin.getTaxRate() * 100) + "%")));
     }
 
-    public void setPrice(double price) {
+    public void setPrice(BigDecimal price) {
         this.price = price;
         updatePriceButton();
     }
 
     private void updatePriceButton() {
-        String name = price > 0 ? "&a&l设置价格: &f" + PriceUtil.format(price) : "&e&l设置价格";
+        boolean set = price != null && price.signum() > 0;
+        String name = set ? "&a&l设置价格: &f" + PriceUtil.format(price) : "&e&l设置价格";
         inventory.setItem(PRICE_SLOT, button(Material.EMERALD, name, List.of(
-                price > 0 ? "&7当前整组总价: &f" + plugin.money(price) : "&7尚未设置价格",
+                set ? "&7当前整组总价: &f" + plugin.money(price) : "&7尚未设置价格",
                 "&7点击后在聊天栏输入价格")));
     }
 
@@ -104,7 +106,7 @@ public class CreateGui extends BaseGui {
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1, 1);
             return;
         }
-        if (price <= 0) {
+        if (price == null || price.signum() <= 0) {
             player.sendMessage(Text.color(plugin.getMessage("create-no-price")));
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1, 1);
             return;

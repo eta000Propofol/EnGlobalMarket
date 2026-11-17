@@ -94,6 +94,7 @@ public class ManageItemGui extends BaseGui {
             }
             case GONE -> player.sendMessage(Text.color(plugin.getMessage("buy-sold")));
             case NOT_OWNER -> player.sendMessage(Text.color(plugin.getMessage("not-owner")));
+            case FAILED -> player.sendMessage(Text.color(plugin.getMessage("op-failed")));
         }
         plugin.getGuiManager().open(player, new ManageGui(plugin, player));
     }

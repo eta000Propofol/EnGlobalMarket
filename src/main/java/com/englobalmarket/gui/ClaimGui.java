@@ -95,6 +95,7 @@ public class ClaimGui extends BaseGui {
         return switch (reason) {
             case Claim.REASON_EXPIRED -> "&c超时自动下架";
             case Claim.REASON_OVERFLOW -> "&7背包放不下";
+            case Claim.REASON_ROLLBACK -> "&7交易回滚";
             default -> "&7其他";
         };
     }
@@ -123,18 +124,25 @@ public class ClaimGui extends BaseGui {
     }
 
     private void collect(Claim claim) {
-        int remaining = plugin.getMarketService().claimItem(player, claim.id());
-        if (remaining == -1) {
-            player.sendMessage(Text.color(plugin.getMessage("buy-sold")));
-        } else if (remaining == 0) {
-            player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1, 1);
-            player.sendMessage(Text.color(plugin.getMessage("claim-success")
-                    .replace("%item%", MarketService.displayName(claim.item()))
-                    .replace("%amount%", String.valueOf(claim.item().getAmount()))));
-        } else {
-            player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1, 1);
-            player.sendMessage(Text.color(plugin.getMessage("claim-partial")
-                    .replace("%amount%", String.valueOf(remaining))));
+        MarketService.ClaimResult result = plugin.getMarketService().claimItem(player, claim.id());
+        switch (result.outcome()) {
+            case GONE -> player.sendMessage(Text.color(plugin.getMessage("buy-sold")));
+            case FAILED -> player.sendMessage(Text.color(plugin.getMessage("op-failed")));
+            case CLAIMED -> {
+                player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1, 1);
+                player.sendMessage(Text.color(plugin.getMessage("claim-success")
+                        .replace("%item%", MarketService.displayName(claim.item()))
+                        .replace("%amount%", String.valueOf(claim.item().getAmount()))));
+            }
+            case PARTIAL -> {
+                player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1, 1);
+                player.sendMessage(Text.color(plugin.getMessage("claim-partial")
+                        .replace("%amount%", String.valueOf(result.remaining()))));
+            }
+            case CLAIMED_DROPPED -> {
+                player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1, 1);
+                player.sendMessage(Text.color(plugin.getMessage("inventory-full-drop")));
+            }
         }
         plugin.getGuiManager().open(player, new ClaimGui(plugin, player, pageInfo.page()));
     }

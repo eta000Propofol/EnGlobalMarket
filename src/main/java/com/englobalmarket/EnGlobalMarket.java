@@ -12,6 +12,7 @@ import com.englobalmarket.util.PriceUtil;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
+import java.math.BigDecimal;
 import java.util.Map;
 
 /**
@@ -27,7 +28,9 @@ public final class EnGlobalMarket extends JavaPlugin {
      */
     private static final Map<String, String> MESSAGE_DEFAULTS = Map.of(
             "inventory-full-drop", "&c背包已满，物品已掉落在脚下。",
-            "claim-partial", "&c背包已满，剩余 %amount% 个仍留在收货箱。");
+            "claim-partial", "&c背包已满，剩余 %amount% 个仍留在收货箱。",
+            "op-failed", "&c操作失败，物品与余额均未变动，请稍后重试或联系管理员。",
+            "price-changed", "&c该商品价格已变更为 %price%，请重新确认后再购买。");
 
     private EconomyService economyService;
     private MarketStorage storage;
@@ -120,6 +123,11 @@ public final class EnGlobalMarket extends JavaPlugin {
         return getConfig().getDouble("economy.tax-rate", 0.05);
     }
 
+    /** 税率（十进制），用于金额计算，避免 double 误差。 */
+    public BigDecimal getTaxRateDecimal() {
+        return BigDecimal.valueOf(getTaxRate());
+    }
+
     public int getExpireDays() {
         return Math.max(0, getConfig().getInt("market.expire-days", 7));
     }
@@ -141,8 +149,13 @@ public final class EnGlobalMarket extends JavaPlugin {
     }
 
     /** 格式化金额（纯数字 + 货币名）。 */
-    public String money(double amount) {
+    public String money(BigDecimal amount) {
         return PriceUtil.format(amount) + " " + getCurrencyName();
+    }
+
+    /** 格式化金额（double 入口，用于余额等外部来源）。 */
+    public String money(double amount) {
+        return money(BigDecimal.valueOf(amount));
     }
 
     // ---------------- 服务 ----------------

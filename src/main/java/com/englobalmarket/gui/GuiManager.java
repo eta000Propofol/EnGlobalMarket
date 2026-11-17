@@ -2,24 +2,30 @@ package com.englobalmarket.gui;
 
 import com.englobalmarket.EnGlobalMarket;
 import com.englobalmarket.model.Listing;
+import com.englobalmarket.service.MarketService;
 import com.englobalmarket.util.PriceUtil;
 import com.englobalmarket.util.Text;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * GUI 注册表与导航管理：追踪每个玩家打开的界面，处理切换与聊天栏价格输入。
+ *
+ * <p>线程约定：界面相关的 Map 只在主线程读写；价格输入的两个 Map 会被
+ * {@code AsyncChatEvent} 线程查询（{@link #hasPriceInput}），因此使用并发容器保证可见性。
  */
 public class GuiManager {
 
-    /** 价格输入上下文。 */
-    public record PriceInput(BaseGui target, int listingId, double currentPrice) {
+    /** 价格输入上下文。currentPrice 为 null 表示尚未设置过价格。 */
+    public record PriceInput(BaseGui target, int listingId, BigDecimal currentPrice) {
     }
 
     /** 价格输入超时时间（tick）。 */
@@ -27,8 +33,8 @@ public class GuiManager {
 
     private final EnGlobalMarket plugin;
     private final Map<UUID, BaseGui> open = new LinkedHashMap<>();
-    private final Map<UUID, PriceInput> priceInputs = new LinkedHashMap<>();
-    private final Map<UUID, BukkitTask> priceTimeouts = new LinkedHashMap<>();
+    private final Map<UUID, PriceInput> priceInputs = new ConcurrentHashMap<>();
+    private final Map<UUID, BukkitTask> priceTimeouts = new ConcurrentHashMap<>();
 
     public GuiManager(EnGlobalMarket plugin) {
         this.plugin = plugin;
@@ -102,7 +108,7 @@ public class GuiManager {
      * 开始价格输入：关闭当前界面，让玩家在聊天栏输入价格。
      * 目标界面（含已放入的物品）会保留，输入结束/取消/超时后重新打开。
      */
-    public void beginPriceInput(Player player, BaseGui target, int listingId, double currentPrice) {
+    public void beginPriceInput(Player player, BaseGui target, int listingId, BigDecimal currentPrice) {
         UUID uuid = player.getUniqueId();
         BaseGui current = open.get(uuid);
         if (current != null) {
@@ -113,11 +119,10 @@ public class GuiManager {
         player.closeInventory();
         player.sendMessage(Text.color(plugin.getMessage("price-prompt")));
         player.sendMessage(Text.color(plugin.getMessage("price-prompt-hint")));
-        BukkitTask task = plugin.getServer().getScheduler()
-                .runTaskLater(plugin, () -> cancelPriceInput(player), PRICE_TIMEOUT_TICKS);
-        priceTimeouts.put(uuid, task);
+        scheduleTimeout(player);
     }
 
+    /** 是否正在等待该玩家输入价格（可能在异步线程调用）。 */
     public boolean hasPriceInput(Player player) {
         return priceInputs.containsKey(player.getUniqueId());
     }
@@ -126,10 +131,7 @@ public class GuiManager {
     public void completePriceInput(Player player, String rawText) {
         UUID uuid = player.getUniqueId();
         PriceInput input = priceInputs.remove(uuid);
-        BukkitTask task = priceTimeouts.remove(uuid);
-        if (task != null) {
-            task.cancel();
-        }
+        cancelTimeout(uuid);
         if (input == null) {
             return;
         }
@@ -141,14 +143,13 @@ public class GuiManager {
             return;
         }
 
-        Double price = PriceUtil.parse(text);
+        BigDecimal price = PriceUtil.parse(text);
         if (price == null) {
             player.sendMessage(Text.color(plugin.getMessage("invalid-price")));
             player.sendMessage(Text.color(plugin.getMessage("price-prompt-hint")));
             // 输入无效：继续等待下一次输入
             priceInputs.put(uuid, input);
-            priceTimeouts.put(uuid, plugin.getServer().getScheduler()
-                    .runTaskLater(plugin, () -> cancelPriceInput(player), PRICE_TIMEOUT_TICKS));
+            scheduleTimeout(player);
             return;
         }
 
@@ -157,15 +158,31 @@ public class GuiManager {
             player.sendMessage(Text.color(plugin.getMessage("price-set")
                     .replace("%price%", plugin.money(price))));
         } else if (input.target() instanceof ManageItemGui) {
-            if (plugin.getMarketService().changePrice(player, input.listingId(), price)) {
-                player.sendMessage(Text.color(plugin.getMessage("price-change-success")
+            switch (plugin.getMarketService().changePrice(player, input.listingId(), price)) {
+                case SUCCESS -> player.sendMessage(Text.color(plugin.getMessage("price-change-success")
                         .replace("%price%", plugin.money(price))));
-            } else {
-                player.sendMessage(Text.color(plugin.getMessage("buy-sold")));
+                case GONE, NOT_OWNER -> player.sendMessage(Text.color(plugin.getMessage("buy-sold")));
+                case FAILED -> player.sendMessage(Text.color(plugin.getMessage("op-failed")));
             }
         }
         player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_YES, 1, 1);
         reopenAfterPriceInput(player, input);
+    }
+
+    private void scheduleTimeout(Player player) {
+        BukkitTask task = plugin.getServer().getScheduler()
+                .runTaskLater(plugin, () -> cancelPriceInput(player), PRICE_TIMEOUT_TICKS);
+        BukkitTask previous = priceTimeouts.put(player.getUniqueId(), task);
+        if (previous != null) {
+            previous.cancel();
+        }
+    }
+
+    private void cancelTimeout(UUID uuid) {
+        BukkitTask task = priceTimeouts.remove(uuid);
+        if (task != null) {
+            task.cancel();
+        }
     }
 
     /** 超时取消。 */
@@ -194,4 +211,3 @@ public class GuiManager {
         }
     }
 }
-

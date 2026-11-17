@@ -14,6 +14,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -59,12 +60,12 @@ public class ConfirmBuyGui extends BaseGui {
         }
         inventory.setItem(ITEM_SLOT, item);
 
-        double proceeds = PriceUtil.sellerProceeds(listing.price(), plugin.getTaxRate());
+        BigDecimal proceeds = PriceUtil.proceeds(listing.price(), plugin.getTaxRateDecimal());
         inventory.setItem(INFO_SLOT, button(Material.BOOK, "&e&l购买确认", List.of(
                 "&7购买整组商品",
                 "&7需支付: &f" + plugin.money(listing.price()),
                 "&7卖家实收（税后）: &f" + plugin.money(proceeds),
-                "&7你的余额: &f" + plugin.money(plugin.getEconomyService().getBalance(player)),
+                "&7你的余额: &f" + plugin.money(plugin.getEconomyService().balance(player.getUniqueId())),
                 "&7确认后将立即从余额扣除")));
         inventory.setItem(CONFIRM_SLOT, button(Material.LIME_DYE, "&a&l确认购买", List.of("&7点击完成交易")));
         inventory.setItem(CANCEL_SLOT, button(Material.BARRIER, "&c取消", List.of("&7返回市场")));
@@ -84,7 +85,9 @@ public class ConfirmBuyGui extends BaseGui {
     }
 
     private void confirm() {
-        MarketService.BuyResult result = plugin.getMarketService().purchase(player, listing.id());
+        // 把界面上展示的价格一起传下去：服务端价格若已被卖家改过，不会按新价格直接扣款
+        MarketService.BuyResult result =
+                plugin.getMarketService().purchase(player, listing.id(), listing.price());
         switch (result) {
             case SUCCESS -> {
                 player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_YES, 1, 1);
@@ -96,6 +99,19 @@ public class ConfirmBuyGui extends BaseGui {
             case NOT_ENOUGH_MONEY -> player.sendMessage(Text.color(plugin.getMessage("buy-no-money")
                     .replace("%price%", plugin.money(listing.price()))));
             case NO_ECONOMY -> player.sendMessage(Text.color(plugin.getMessage("no-economy")));
+            case FAILED -> player.sendMessage(Text.color(plugin.getMessage("op-failed")));
+            case PRICE_CHANGED -> {
+                Listing fresh = plugin.getMarketService().getListing(listing.id());
+                if (fresh == null) {
+                    player.sendMessage(Text.color(plugin.getMessage("buy-sold")));
+                } else {
+                    player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1, 1);
+                    player.sendMessage(Text.color(plugin.getMessage("price-changed")
+                            .replace("%price%", plugin.money(fresh.price()))));
+                    plugin.getGuiManager().open(player, new ConfirmBuyGui(plugin, player, fresh));
+                    return;
+                }
+            }
         }
         plugin.getGuiManager().open(player, new MarketGui(plugin, player));
     }

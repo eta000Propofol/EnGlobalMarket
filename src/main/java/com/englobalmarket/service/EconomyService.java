@@ -1,16 +1,22 @@
 package com.englobalmarket.service;
 
 import com.englobalmarket.EnGlobalMarket;
-import com.englobalmarket.util.PriceUtil;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
+import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.plugin.RegisteredServiceProvider;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.UUID;
+
 /**
  * 经济服务：通过 Vault 接口接入服务器的经济插件。
+ *
+ * <p>对外使用 {@link BigDecimal} 金额（两位小数），只在调用 Vault 时转成 double。
  */
-public class EconomyService {
+public class EconomyService implements EconomyGateway {
 
     private final EnGlobalMarket plugin;
     private Economy economy;
@@ -38,42 +44,65 @@ public class EconomyService {
     }
 
     /** 经济是否可用。 */
+    @Override
     public boolean isAvailable() {
         return economy != null;
     }
 
-    public boolean has(OfflinePlayer player, double amount) {
-        return economy != null && economy.has(player, amount);
+    @Override
+    public boolean has(UUID player, BigDecimal amount) {
+        return economy != null && amount != null && economy.has(player(player), toVault(amount));
     }
 
-    public double getBalance(OfflinePlayer player) {
-        return economy == null ? 0 : economy.getBalance(player);
+    @Override
+    public BigDecimal balance(UUID player) {
+        if (economy == null) {
+            return BigDecimal.ZERO.setScale(2);
+        }
+        return BigDecimal.valueOf(economy.getBalance(player(player))).setScale(2, RoundingMode.HALF_UP);
     }
 
     /** 从玩家余额中扣除；成功返回 true。 */
-    public boolean withdraw(OfflinePlayer player, double amount) {
-        if (economy == null || amount <= 0) {
-            return economy != null;
+    @Override
+    public boolean withdraw(UUID player, BigDecimal amount) {
+        if (economy == null) {
+            return false;
         }
-        EconomyResponse response = economy.withdrawPlayer(player, amount);
+        if (amount == null || amount.signum() <= 0) {
+            return true;
+        }
+        EconomyResponse response = economy.withdrawPlayer(player(player), toVault(amount));
         return response != null && response.transactionSuccess();
     }
 
     /** 给玩家入账；成功返回 true。 */
-    public boolean deposit(OfflinePlayer player, double amount) {
-        if (economy == null || amount <= 0) {
-            return economy != null;
+    @Override
+    public boolean deposit(UUID player, BigDecimal amount) {
+        if (economy == null) {
+            return false;
         }
-        EconomyResponse response = economy.depositPlayer(player, amount);
+        if (amount == null || amount.signum() <= 0) {
+            return true;
+        }
+        EconomyResponse response = economy.depositPlayer(player(player), toVault(amount));
         return response != null && response.transactionSuccess();
     }
 
-    /** 格式化金额（带货币单位）。 */
-    public String format(double amount) {
-        if (economy != null) {
-            return economy.format(amount);
+    /** Vault 只接受 double：金额已是两位小数，转换是精确的。 */
+    private static double toVault(BigDecimal amount) {
+        return amount.doubleValue();
+    }
+
+    /** 在线玩家直接返回 Player 实例，离线玩家走 Bukkit 缓存。 */
+    private static OfflinePlayer player(UUID uuid) {
+        return Bukkit.getOfflinePlayer(uuid);
+    }
+
+    /** 金额显示（带货币单位，由经济插件格式化）。 */
+    public String format(BigDecimal amount) {
+        if (economy != null && amount != null) {
+            return economy.format(toVault(amount));
         }
-        return PriceUtil.format(amount);
+        return com.englobalmarket.util.PriceUtil.format(amount);
     }
 }
-

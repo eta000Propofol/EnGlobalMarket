@@ -30,8 +30,13 @@ dependencies {
     implementation("org.xerial:sqlite-jdbc:3.46.1.0")
     // 单元测试
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    // 测试里需要构造 ItemStack 作为商品载荷（编译期依赖在测试运行时也必须可见）
+    testImplementation("io.papermc.paper:paper-api:26.1.2.build.74-stable")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
+
+// 在配置期取出版本号，避免在任务执行期访问 project（Gradle 10 起会报错）
+val pluginVersion = version.toString()
 
 tasks {
     compileJava {
@@ -40,7 +45,7 @@ tasks {
     }
     processResources {
         filesMatching("plugin.yml") {
-            expand("version" to project.version)
+            expand("version" to pluginVersion)
         }
     }
     test {
@@ -55,7 +60,7 @@ tasks {
         archiveClassifier.set("thin")
     }
     shadowJar {
-        archiveFileName.set("EnGlobalMarket-${project.version}.jar")
+        archiveFileName.set("EnGlobalMarket-$pluginVersion.jar")
         // 注意：sqlite-jdbc 的 JNI 原生库按原包名查找 org.sqlite.core.NativeDB，不能重定位，否则驱动无法加载
     }
     build {
