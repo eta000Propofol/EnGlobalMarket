@@ -21,6 +21,12 @@ public class PlayerListener implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        // 先补发上次崩溃/离线时没送达的物品，再处理收货箱
+        int pendingDelivered = plugin.getMarketService().deliverPending(player);
+        if (pendingDelivered > 0) {
+            player.sendMessage(Text.color(plugin.getMessage("pending-delivered")
+                    .replace("%count%", String.valueOf(pendingDelivered))));
+        }
         int pending = plugin.getMarketService().countClaims(player.getUniqueId());
         if (pending <= 0) {
             return;

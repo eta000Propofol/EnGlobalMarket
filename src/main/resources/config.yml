@@ -26,6 +26,7 @@ market:
   max-listings-per-player: 20
   # 过期检查间隔（分钟，默认 5，小于 1 时按 1 处理）。
   # 插件启用时会先立即全量扫描一次，之后按此间隔轮询。
+  # 同一轮里还会重试「上次退款失败」等未结清的交易流水（详见 README 的交易可靠性一节）。
   check-interval-minutes: 5
 
 # ---------------- 界面标题 ----------------
@@ -53,6 +54,7 @@ gui:
 #   %amount%  单个物品堆叠数
 #   %count%   件数
 #   %days%    有效期天数
+# 管理员命令独有（/market pending）：%id% %kind% %stage% %player% %note%
 messages:
   no-permission: "&c你没有权限执行此命令。"
   not-player: "&c该命令只能由玩家执行。"
@@ -96,3 +98,9 @@ messages:
   reload-success: "&a配置已重载。"
   # 数据库或经济写入失败（已尽量回滚，钱与物品通常都未变动）
   op-failed: "&c操作失败，物品与余额均未变动，请稍后重试或联系管理员。"
+  # 上线时补发上次异常中断未送达的物品（交易流水恢复）
+  pending-delivered: "&a已补发 %count% 件因异常中断未送达的物品。"
+  # 管理员 /market pending 的输出
+  pending-none: "&a当前没有未结清的异常交易。"
+  pending-header: "&e未结清流水 %count% 条（其中需人工核对 %manual% 条）："
+  pending-entry: "&7#%id% &f%kind% &7阶段=&f%stage% &7玩家=&f%player% &7金额=&f%amount% &7备注=&f%note%"

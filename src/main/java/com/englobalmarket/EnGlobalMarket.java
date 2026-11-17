@@ -30,7 +30,11 @@ public final class EnGlobalMarket extends JavaPlugin {
             "inventory-full-drop", "&c背包已满，物品已掉落在脚下。",
             "claim-partial", "&c背包已满，剩余 %amount% 个仍留在收货箱。",
             "op-failed", "&c操作失败，物品与余额均未变动，请稍后重试或联系管理员。",
-            "price-changed", "&c该商品价格已变更为 %price%，请重新确认后再购买。");
+            "price-changed", "&c该商品价格已变更为 %price%，请重新确认后再购买。",
+            "pending-delivered", "&a已补发 %count% 件因异常中断未送达的物品。",
+            "pending-none", "&a当前没有未结清的异常交易。",
+            "pending-header", "&e未结清流水 %count% 条（其中需人工核对 %manual% 条）：",
+            "pending-entry", "&7#%id% &f%kind% &7阶段=&f%stage% &7玩家=&f%player% &7金额=&f%amount% &7备注=&f%note%");
 
     private EconomyService economyService;
     private MarketStorage storage;
@@ -74,6 +78,8 @@ public final class EnGlobalMarket extends JavaPlugin {
         }
 
         marketService.expireAll();
+        // 启动即处理上次崩溃/离线留下的流水：能补齐的补齐，需人工的只记日志
+        marketService.recoverPending();
 
         expiryScheduler = new ExpiryScheduler(this);
         expiryScheduler.start();
