@@ -8,16 +8,23 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DisplayName("PriceUtil 价格解析 / 税率 / 格式化")
 class PriceUtilTest {
+
+    private static BigDecimal d(String value) {
+        return new BigDecimal(value);
+    }
 
     @Nested
     @DisplayName("parse 价格解析")
@@ -25,23 +32,24 @@ class PriceUtilTest {
 
         @ParameterizedTest(name = "\"{0}\" -> {1}")
         @CsvSource({
-                "12.5,        12.5",
-                "' 3 ',       3.0",
-                "'1,000',     1000.0",
+                "12.5,        12.50",
+                "' 3 ',       3.00",
+                "'1,000',     1000.00",
                 "'1,234,567.89', 1234567.89",
                 "0.01,        0.01",
-                ".5,          0.5",
-                "5.,          5.0",
-                "+5,          5.0",
-                "1e9,         1000000000.0",
-                "0.1,         0.1",
-                "1000000000,  1000000000.0",
-                "1000000000.0, 1000000000.0",
-                "1.7976931348623157E8, 179769313.48623157"
+                ".5,          0.50",
+                "5.,          5.00",
+                "+5,          5.00",
+                "0.5,         0.50",
+                "0.50,        0.50",
+                "1000000000,  1000000000.00",
+                "1000000000.00, 1000000000.00",
+                "'1,000.5',   1000.50",
+                "0001,        1.00"
         })
-        @DisplayName("合法价格原样解析")
-        void parsesValidPrices(String input, double expected) {
-            assertEquals(expected, PriceUtil.parse(input));
+        @DisplayName("合法价格解析并归一到两位小数")
+        void parsesValidPrices(String input, String expected) {
+            assertEquals(d(expected), PriceUtil.parse(input));
         }
 
         @ParameterizedTest(name = "拒绝 \"{0}\"")
@@ -53,6 +61,7 @@ class PriceUtilTest {
                 "1 2",
                 "0",
                 "0.0",
+                "0.00",
                 "-0",
                 "-0.01",
                 "-5",
@@ -60,12 +69,27 @@ class PriceUtilTest {
                 "NaN",
                 "Infinity",
                 "-Infinity",
-                "1e400",
+                // 科学计数法与 Java 字面量后缀一律拒绝（旧实现会被 Double.parseDouble 吃下去）
+                "1e9",
                 "1.5e12",
+                "10d",
+                "10f",
+                "0x1p3",
+                // 千分位必须三位一组
+                "1,0,0",
+                "1,,0",
+                "1,0000",
+                ",",
+                ",,",
+                // 超过两位小数
+                "1.234",
+                "0.001",
+                "123.456",
+                // 超上限
                 "1000000000.01",
                 "1000000001"
         })
-        @DisplayName("非法/非正/超上限价格返回 null")
+        @DisplayName("非法/非正/超上限/超两位小数/畸形千分位返回 null")
         void rejectsInvalidPrices(String input) {
             assertNull(PriceUtil.parse(input));
         }
@@ -74,90 +98,133 @@ class PriceUtilTest {
         @DisplayName("上限恰为 10 亿，超出即拒绝")
         void maxPriceBoundary() {
             assertAll(
-                    () -> assertEquals(1_000_000_000d, PriceUtil.MAX_PRICE),
+                    () -> assertEquals(0, PriceUtil.MAX_PRICE.compareTo(d("1000000000"))),
                     () -> assertNotNull(PriceUtil.parse("1000000000")),
+                    () -> assertNotNull(PriceUtil.parse("1000000000.00")),
                     () -> assertNull(PriceUtil.parse("1000000000.0001")),
                     () -> assertNull(PriceUtil.parse("1000000000.01")));
         }
 
         @Test
-        @DisplayName("逗号被无条件删除（已知宽松行为）")
-        void commasStrippedAnywhere() {
+        @DisplayName("解析结果统一为两位小数（可以直接用于结算与展示）")
+        void alwaysScaledToTwoDecimals() {
             assertAll(
-                    () -> assertEquals(1_000d, PriceUtil.parse("1,000")),
-                    () -> assertEquals(10d, PriceUtil.parse("1,,0")),
-                    () -> assertEquals(100d, PriceUtil.parse("1,0,0")),
-                    () -> assertNull(PriceUtil.parse(",,")));
+                    () -> assertEquals(2, PriceUtil.parse("1000").scale()),
+                    () -> assertEquals(2, PriceUtil.parse("1e9".replace("e9", "000000000")).scale()),
+                    () -> assertEquals(2, PriceUtil.parse(".5").scale()),
+                    () -> assertEquals(new BigDecimal("1000.00"), PriceUtil.parse("1000")));
         }
 
         @Test
-        @DisplayName("极小正数可解析，全 0 视为非法")
-        void tinyPositiveValues() {
+        @DisplayName("极小正数被拒绝：不足一分无法结算")
+        void rejectsSubCentAmounts() {
             assertAll(
-                    () -> assertEquals(Double.MIN_VALUE, PriceUtil.parse("4.9e-324")),
-                    () -> assertEquals(1e-9, PriceUtil.parse("0.000000001")),
-                    () -> assertNull(PriceUtil.parse("0.0000")));
+                    () -> assertNull(PriceUtil.parse("0.001")),
+                    () -> assertNull(PriceUtil.parse("4.9e-324".replace("4.9e-324", "0.000000001"))),
+                    () -> assertEquals(new BigDecimal("0.01"), PriceUtil.parse("0.01")));
         }
     }
 
     @Nested
-    @DisplayName("sellerProceeds 卖家实收")
-    class SellerProceeds {
+    @DisplayName("proceeds 卖家实收")
+    class Proceeds {
 
         @ParameterizedTest(name = "售价 {0} × (1-{1}) = {2}")
         @CsvSource({
-                "100,    0.05, 95.0",
-                "99.99,  0.05, 94.99",
-                "100,    0,    100.0",
-                "100,    0.99, 1.0",
-                "1000000000, 0.05, 950000000.0",
-                "123.456, 0.1, 111.11",
-                "1,      0.333, 0.66",
-                "0.02,   0.05, 0.01",
-                "0.01,   0.05, 0.0",
-                "80,     0.05, 76.0",
-                "33.33,  0.33, 22.33"
+                "100.00,       0.05, 95.00",
+                "99.99,        0.05, 94.99",
+                "100.00,       0,    100.00",
+                "100.00,       0.99, 1.00",
+                "1000000000.00, 0.05, 950000000.00",
+                "123.45,       0.1,  111.10",
+                "1.00,         0.333, 0.66",
+                "0.02,         0.05, 0.01",
+                "0.01,         0.05, 0.00",
+                "80.00,        0.05, 76.00",
+                "33.33,        0.33, 22.33"
         })
         @DisplayName("按税率计算并向下取整到分")
-        void appliesTaxAndRoundsDown(String price, String rate, double expected) {
-            assertEquals(expected,
-                    PriceUtil.sellerProceeds(Double.parseDouble(price), Double.parseDouble(rate)),
-                    1e-9);
+        void appliesTaxAndRoundsDown(String price, String rate, String expected) {
+            assertEquals(0, d(expected).compareTo(PriceUtil.proceeds(d(price), d(rate))));
+        }
+
+        @ParameterizedTest(name = "售价 {0} 零税率实收 {0}")
+        @ValueSource(strings = {"0.29", "0.57", "1.13", "0.60", "1.20", "2.29", "100.00"})
+        @DisplayName("回归：零税率时实收必须等于售价（旧实现会少算一分）")
+        void zeroTaxNeverLosesACent(String price) {
+            assertEquals(0, d(price).compareTo(PriceUtil.proceeds(d(price), BigDecimal.ZERO)),
+                    "price=" + price);
+        }
+
+        @ParameterizedTest(name = "售价 {0} 按 5% 计税实收 {1}")
+        @CsvSource({
+                "0.60, 0.57",
+                "1.20, 1.14",
+                "2.40, 2.28",
+                "3.00, 2.85",
+                "12.60, 11.97",
+                "0.20, 0.19"
+        })
+        @DisplayName("回归：默认 5% 税率下曾少算一分的金额")
+        void fivePercentNeverLosesACent(String price, String expected) {
+            assertEquals(0, d(expected).compareTo(PriceUtil.proceeds(d(price), d("0.05"))),
+                    "price=" + price);
         }
 
         @Test
         @DisplayName("取整方向是向下而非四舍五入")
         void floorsInsteadOfRounding() {
             assertAll(
-                    // 0.019 若四舍五入应得 0.02，向下取整得 0.01
-                    () -> assertEquals(0.01, PriceUtil.sellerProceeds(0.019, 0), 1e-9),
-                    // 0.999 × 0.5 = 0.4995，四舍五入为 0.50，向下取整为 0.49
-                    () -> assertEquals(0.49, PriceUtil.sellerProceeds(0.999, 0.5), 1e-9));
+                    // 1.90 × 0.5 = 0.95 精确，0.999 场景用整分金额验证
+                    () -> assertEquals(d("0.95"), PriceUtil.proceeds(d("1.90"), d("0.5"))),
+                    // 1.99 × 0.5 = 0.995，四舍五入为 1.00，向下取整为 0.99
+                    () -> assertEquals(d("0.99"), PriceUtil.proceeds(d("1.99"), d("0.5"))));
         }
 
         @Test
-        @DisplayName("零税率时实收等于售价（保留 2 位）")
-        void zeroTaxKeepsPrice() {
-            for (double price : new double[]{0.01, 0.1, 1, 9.99, 100, 1234.56, 1_000_000_000}) {
-                assertEquals(Math.floor(price * 100.0) / 100.0,
-                        PriceUtil.sellerProceeds(price, 0), 1e-9, "price=" + price);
+        @DisplayName("全量扫描：1 万以内所有整分金额，零税率都不会少算")
+        void zeroTaxIsExactForEveryCent() {
+            int bad = 0;
+            for (int cents = 1; cents <= 10_000; cents++) {
+                BigDecimal price = BigDecimal.valueOf(cents, 2);
+                BigDecimal proceeds = PriceUtil.proceeds(price, BigDecimal.ZERO);
+                if (price.compareTo(proceeds) != 0) {
+                    bad++;
+                }
             }
+            assertEquals(0, bad, "零税率下少算的金额数量");
         }
 
         @Test
-        @DisplayName("不变量：0 ≤ 实收 ≤ 售价，且始终为整分")
-        void proceedsNeverExceedsPriceAndIsWholeCents() {
-            double[] prices = {0.01, 0.02, 0.1, 0.99, 1, 9.99, 99.99, 100, 1234.56, 1e6, 1e9};
-            double[] rates = {0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.9, 0.99};
-            for (double price : prices) {
-                for (double rate : rates) {
-                    double proceeds = PriceUtil.sellerProceeds(price, rate);
+        @DisplayName("全量扫描：默认税率与「乘 95 再除以 100」交叉校验，零偏差")
+        void fivePercentMatchesIndependentFormula() {
+            BigDecimal rate = new BigDecimal("0.05");
+            BigDecimal hundred = new BigDecimal("100");
+            int bad = 0;
+            for (int cents = 1; cents <= 10_000; cents++) {
+                BigDecimal price = BigDecimal.valueOf(cents, 2);
+                BigDecimal expected = price.multiply(new BigDecimal("95"))
+                        .divide(hundred, PriceUtil.SCALE, RoundingMode.FLOOR);
+                if (expected.compareTo(PriceUtil.proceeds(price, rate)) != 0) {
+                    bad++;
+                }
+            }
+            assertEquals(0, bad, "与独立公式不一致的金额数量");
+        }
+
+        @Test
+        @DisplayName("不变量：0 ≤ 实收 ≤ 售价，且始终为两位小数")
+        void proceedsNeverExceedsPriceAndKeepsScale() {
+            String[] prices = {"0.01", "0.02", "0.10", "0.99", "1.00", "9.99", "99.99", "100.00",
+                    "1234.56", "1000000.00", "1000000000.00"};
+            String[] rates = {"0", "0.01", "0.05", "0.1", "0.25", "0.5", "0.9", "0.99"};
+            for (String price : prices) {
+                for (String rate : rates) {
+                    BigDecimal proceeds = PriceUtil.proceeds(d(price), d(rate));
                     String ctx = "price=" + price + ", rate=" + rate + " -> " + proceeds;
-                    assertTrue(proceeds >= 0, "实收为负: " + ctx);
-                    assertTrue(proceeds <= price, "实收超过售价: " + ctx);
-                    double cents = proceeds * 100.0;
-                    double tolerance = Math.max(1e-6, Math.abs(cents) * 1e-14);
-                    assertEquals(Math.rint(cents), cents, tolerance, "实收不是整分: " + ctx);
+                    assertTrue(proceeds.signum() >= 0, "实收为负: " + ctx);
+                    assertTrue(proceeds.compareTo(d(price)) <= 0, "实收超过售价: " + ctx);
+                    assertEquals(PriceUtil.SCALE, proceeds.scale(), "实收小数位不是 2: " + ctx);
                 }
             }
         }
@@ -165,12 +232,25 @@ class PriceUtilTest {
         @Test
         @DisplayName("实收随售价单调不减")
         void monotonicInPrice() {
-            double previous = -1;
-            for (double price = 0.01; price <= 1000; price += 0.37) {
-                double proceeds = PriceUtil.sellerProceeds(price, 0.05);
-                assertTrue(proceeds >= previous, "在 price=" + price + " 处不单调");
+            BigDecimal previous = new BigDecimal("-1");
+            for (int cents = 1; cents <= 100_000; cents += 37) {
+                BigDecimal proceeds = PriceUtil.proceeds(BigDecimal.valueOf(cents, 2), d("0.05"));
+                assertTrue(proceeds.compareTo(previous) >= 0, "在 " + cents + " 分处不单调");
                 previous = proceeds;
             }
+        }
+
+        @Test
+        @DisplayName("null 售价按 0 处理，不会抛异常")
+        void nullPriceIsZero() {
+            assertEquals(d("0.00"), PriceUtil.proceeds(null, d("0.05")));
+        }
+
+        @Test
+        @DisplayName("double 税率入口与 BigDecimal 结果一致")
+        void doubleRateOverloadMatches() {
+            assertEquals(PriceUtil.proceeds(d("100.00"), d("0.05")),
+                    PriceUtil.proceeds(d("100.00"), 0.05));
         }
     }
 
@@ -230,29 +310,54 @@ class PriceUtilTest {
 
         @ParameterizedTest(name = "{0} -> \"{1}\"")
         @CsvSource({
-                "100.0,        100",
-                "1000.0,       1000",
-                "0.0,          0",
-                "95.5,         95.50",
+                "100.00,       100",
+                "1000.00,      1000",
+                "0.00,         0",
+                "0,            0",
+                "95.50,        95.50",
                 "94.99,        94.99",
-                "0.5,          0.50",
+                "0.50,         0.50",
                 "0.01,         0.01",
-                "1000000000.0, 1000000000",
-                "-0.5,         -0.50"
+                "1000000000.00, 1000000000",
+                "1.5,          1.50"
         })
         @DisplayName("整数不带小数，否则保留 2 位")
-        void formatsAmounts(double value, String expected) {
-            assertEquals(expected, PriceUtil.format(value));
+        void formatsAmounts(String value, String expected) {
+            assertEquals(expected, PriceUtil.format(d(value)));
         }
 
         @Test
-        @DisplayName("format 与 sellerProceeds 组合后金额可读")
-        void formatsProceeds() {
-            double proceeds = PriceUtil.sellerProceeds(123.456, 0.1);
+        @DisplayName("double 入口与 BigDecimal 一致，且能处理非有限值")
+        void formatsDoubles() {
             assertAll(
-                    () -> assertEquals(111.11, proceeds, 1e-9),
-                    () -> assertEquals("111.11", PriceUtil.format(proceeds)),
-                    () -> assertEquals("95", PriceUtil.format(PriceUtil.sellerProceeds(100, 0.05))));
+                    () -> assertEquals("95.50", PriceUtil.format(95.5)),
+                    () -> assertEquals("100", PriceUtil.format(100.0)),
+                    () -> assertEquals("-0.50", PriceUtil.format(-0.5)),
+                    () -> assertEquals("NaN", PriceUtil.format(Double.NaN)));
+        }
+
+        @Test
+        @DisplayName("format 与 proceeds 组合后金额可读")
+        void formatsProceeds() {
+            BigDecimal proceeds = PriceUtil.proceeds(d("123.45"), d("0.1"));
+            assertAll(
+                    () -> assertEquals(d("111.10"), proceeds),
+                    () -> assertEquals("111.10", PriceUtil.format(proceeds)),
+                    () -> assertEquals("95", PriceUtil.format(PriceUtil.proceeds(d("100.00"), d("0.05")))));
+        }
+
+        @Test
+        @DisplayName("null 显示为 0，不会抛 NPE")
+        void nullFormatsToZero() {
+            assertEquals("0", PriceUtil.format((BigDecimal) null));
+            assertEquals("0", PriceUtil.format(0.0));
+        }
+
+        @Test
+        @DisplayName("setScale 用法保证不会因小数位不足抛异常")
+        void scaleIsNeverLessThanZero() {
+            assertThrows(ArithmeticException.class,
+                    () -> d("1.005").setScale(2, RoundingMode.UNNECESSARY));
         }
     }
 }
