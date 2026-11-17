@@ -60,7 +60,7 @@ public class CreateGui extends BaseGui {
         String name = price > 0 ? "&a&l设置价格: &f" + PriceUtil.format(price) : "&e&l设置价格";
         inventory.setItem(PRICE_SLOT, button(Material.EMERALD, name, List.of(
                 price > 0 ? "&7当前整组总价: &f" + plugin.money(price) : "&7尚未设置价格",
-                "&7点击用铁砧输入价格")));
+                "&7点击后在聊天栏输入价格")));
     }
 
     @Override

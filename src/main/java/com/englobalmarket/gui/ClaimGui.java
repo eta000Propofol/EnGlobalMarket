@@ -94,7 +94,6 @@ public class ClaimGui extends BaseGui {
     private static String reasonText(String reason) {
         return switch (reason) {
             case Claim.REASON_EXPIRED -> "&c超时自动下架";
-            case Claim.REASON_DELISTED -> "&7主动下架";
             case Claim.REASON_OVERFLOW -> "&7背包放不下";
             default -> "&7其他";
         };
@@ -134,7 +133,8 @@ public class ClaimGui extends BaseGui {
                     .replace("%amount%", String.valueOf(claim.item().getAmount()))));
         } else {
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1, 1);
-            player.sendMessage(Text.color(plugin.getMessage("inventory-full")));
+            player.sendMessage(Text.color(plugin.getMessage("claim-partial")
+                    .replace("%amount%", String.valueOf(remaining))));
         }
         plugin.getGuiManager().open(player, new ClaimGui(plugin, player, pageInfo.page()));
     }

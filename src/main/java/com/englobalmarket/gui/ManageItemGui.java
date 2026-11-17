@@ -6,6 +6,7 @@ import com.englobalmarket.service.MarketService;
 import com.englobalmarket.util.ItemUtil;
 import com.englobalmarket.util.PriceUtil;
 import com.englobalmarket.util.Text;
+import com.englobalmarket.util.TimeUtil;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.Sound;
@@ -54,7 +55,7 @@ public class ManageItemGui extends BaseGui {
             lore.add(Text.color("&6总价: &f" + plugin.money(listing.price())));
             lore.add(Text.color("&7单价: &f" + PriceUtil.format(listing.unitPrice()) + " / 个"));
             long remain = listing.remainingMillis(plugin.getExpireDays());
-            lore.add(Text.color(remain > 0 ? "&7剩余: &f" + MarketGui.formatRemain(remain) : "&c即将过期"));
+            lore.add(Text.color(remain > 0 ? "&7剩余: &f" + TimeUtil.formatRemain(remain) : "&c即将过期"));
             meta.lore(lore);
             item.setItemMeta(meta);
         }
@@ -62,7 +63,7 @@ public class ManageItemGui extends BaseGui {
 
         inventory.setItem(PRICE_SLOT, button(Material.EMERALD, "&a修改价格", List.of(
                 "&7当前总价: &f" + plugin.money(listing.price()),
-                "&7点击用铁砧输入新价格")));
+                "&7点击后在聊天栏输入新价格")));
         inventory.setItem(DELIST_SLOT, button(Material.RED_DYE, "&c下架", List.of(
                 "&7下架后物品退回你的背包")));
         inventory.setItem(BACK_SLOT, button(Material.BARRIER, "&c返回", List.of("&7回到我的商品")));

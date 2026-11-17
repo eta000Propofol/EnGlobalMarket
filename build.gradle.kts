@@ -46,6 +46,11 @@ tasks {
             events("passed", "failed", "skipped")
         }
     }
+    // 瘦 jar 与 shadowJar 默认同名，会互相覆盖（单独执行 `gradlew jar` 后部署会丢 SQLite 驱动），
+    // 因此给瘦 jar 加后缀区分，可部署的只有 EnGlobalMarket-<版本>.jar
+    jar {
+        archiveClassifier.set("thin")
+    }
     shadowJar {
         archiveFileName.set("EnGlobalMarket-${project.version}.jar")
         // 注意：sqlite-jdbc 的 JNI 原生库按原包名查找 org.sqlite.core.NativeDB，不能重定位，否则驱动无法加载

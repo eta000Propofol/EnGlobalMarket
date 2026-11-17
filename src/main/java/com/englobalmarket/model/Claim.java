@@ -10,6 +10,5 @@ import java.util.UUID;
 public record Claim(int id, UUID ownerUuid, ItemStack item, String reason, long createdAt) {
 
     public static final String REASON_EXPIRED = "expired";
-    public static final String REASON_DELISTED = "delisted";
     public static final String REASON_OVERFLOW = "overflow";
 }

@@ -41,6 +41,22 @@ public final class PriceUtil {
         return Math.floor(proceeds * 100.0) / 100.0;
     }
 
+    /**
+     * 把配置里的税率钳制到 [0, 0.99]：NaN 回退 0.05，负数按 0，≥ 1 按 0.99，其余原样返回。
+     */
+    public static double clampTaxRate(double raw) {
+        if (Double.isNaN(raw)) {
+            return 0.05;
+        }
+        if (raw < 0) {
+            return 0;
+        }
+        if (raw >= 1) {
+            return 0.99;
+        }
+        return raw;
+    }
+
     /** 金额显示：整数不带小数，否则保留 2 位。 */
     public static String format(double value) {
         if (value == Math.floor(value) && !Double.isInfinite(value)) {

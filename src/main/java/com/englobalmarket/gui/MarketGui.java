@@ -6,6 +6,7 @@ import com.englobalmarket.util.ItemUtil;
 import com.englobalmarket.util.Page;
 import com.englobalmarket.util.PriceUtil;
 import com.englobalmarket.util.Text;
+import com.englobalmarket.util.TimeUtil;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -90,24 +91,10 @@ public class MarketGui extends BaseGui {
         lore.add(Text.color("&7单价: &f" + PriceUtil.format(listing.unitPrice()) + " / 个"));
         lore.add(Text.color("&7上架: &f" + TIME.format(new Date(listing.listedAt()))));
         long remain = listing.remainingMillis(plugin.getExpireDays());
-        lore.add(Text.color(remain > 0 ? "&7剩余: &f" + formatRemain(remain) : "&c即将过期"));
+        lore.add(Text.color(remain > 0 ? "&7剩余: &f" + TimeUtil.formatRemain(remain) : "&c即将过期"));
         meta.lore(lore);
         item.setItemMeta(meta);
         return item;
-    }
-
-    static String formatRemain(long millis) {
-        long totalMinutes = Math.max(0, millis / 60_000);
-        long days = totalMinutes / 1440;
-        long hours = (totalMinutes % 1440) / 60;
-        long minutes = totalMinutes % 60;
-        if (days > 0) {
-            return days + " 天 " + hours + " 小时";
-        }
-        if (hours > 0) {
-            return hours + " 小时 " + minutes + " 分";
-        }
-        return minutes + " 分";
     }
 
     @Override

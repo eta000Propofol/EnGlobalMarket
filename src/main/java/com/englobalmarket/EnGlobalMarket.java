@@ -12,6 +12,7 @@ import com.englobalmarket.util.PriceUtil;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
+import java.util.Map;
 
 /**
  * EnGlobalMarket 主类：全球市场插件。
@@ -19,6 +20,14 @@ import java.io.File;
 public final class EnGlobalMarket extends JavaPlugin {
 
     private static EnGlobalMarket instance;
+
+    /**
+     * 新增消息键的兜底文案：旧服务器不会重新生成 config.yml，
+     * 取不到这些键时用默认值，避免提示消息变成空行。
+     */
+    private static final Map<String, String> MESSAGE_DEFAULTS = Map.of(
+            "inventory-full-drop", "&c背包已满，物品已掉落在脚下。",
+            "claim-partial", "&c背包已满，剩余 %amount% 个仍留在收货箱。");
 
     private EconomyService economyService;
     private MarketStorage storage;
@@ -97,14 +106,9 @@ public final class EnGlobalMarket extends JavaPlugin {
     /** 校验并把税率钳制在 [0, 1) 内。 */
     private void clampTax() {
         double raw = getConfig().getDouble("economy.tax-rate", 0.05);
-        double clamped = raw;
-        if (Double.isNaN(raw)) {
-            clamped = 0.05;
-        } else if (raw < 0) {
-            clamped = 0;
-        } else if (raw >= 1) {
-            clamped = 0.99;
-            getLogger().warning("税率必须小于 1，已修正为 0.99。");
+        double clamped = PriceUtil.clampTaxRate(raw);
+        if (raw >= 1) {
+            getLogger().warning("税率必须小于 1，已修正为 " + PriceUtil.format(clamped) + "。");
         }
         getConfig().set("economy.tax-rate", clamped);
         saveConfig();
@@ -133,7 +137,7 @@ public final class EnGlobalMarket extends JavaPlugin {
     }
 
     public String getMessage(String key) {
-        return getConfig().getString("messages." + key, "");
+        return getConfig().getString("messages." + key, MESSAGE_DEFAULTS.getOrDefault(key, ""));
     }
 
     /** 格式化金额（纯数字 + 货币名）。 */

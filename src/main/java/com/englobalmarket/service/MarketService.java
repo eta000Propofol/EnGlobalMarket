@@ -138,7 +138,8 @@ public class MarketService {
             player.getWorld().dropItemNaturally(player.getLocation(), rest);
         }
         if (!leftover.isEmpty()) {
-            player.sendMessage(Text.color(plugin.getMessage("inventory-full")));
+            // 购买时溢出是掉落在脚下，不走收货箱，因此用单独的文案
+            player.sendMessage(Text.color(plugin.getMessage("inventory-full-drop")));
         }
     }
 
