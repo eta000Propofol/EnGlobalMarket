@@ -9,16 +9,19 @@
 
 ## 简介
 
-通过箱子 GUI 上架/购买商品，交易使用 Vault 货币结算，支持成交税率、
-原版堆叠上限、未售出自动下架、收货箱。
+玩家通过箱子 GUI 浏览、上架、购买商品，交易使用 Vault 货币结算。支持成交税率、
+按物品自身堆叠上限限制上架数量、未售出自动下架、个人收货箱，数据存于 SQLite。
 
 ## 功能特性
 
-- 箱子 GUI 浏览/搜索商品，每页 36 件，支持翻页
-- 上架数量按原版堆叠上限限制（普通物品 64、雪球/鸡蛋 16、药水/装备 1）
-- 成交税率，税从卖家所得中扣除
-- 未售出自动下架退回，物品进入个人收货箱
-- 数据存于 SQLite，驱动已打入 jar，无需额外安装数据库
+- 箱子 GUI 浏览商品，市场 / 我的商品 / 收货箱均为每页 36 件、支持翻页
+- 商品图标上显示卖家、整组总价、单价、上架时间与剩余有效期
+- 上架数量取物品自身的原版堆叠上限（普通物品 64，雪球/鸡蛋/末影珍珠等 16，
+  药水/工具/装备 1），一次最多一个堆叠
+- 成交税率可配，税从卖家所得中扣除；买家支付挂牌总价
+- 未售出超过有效期自动下架并转入卖家收货箱，卖家在线时收到提醒
+- 个人收货箱：上线自动投递（单次最多 100 件），也可在「我的商品」里手动领取
+- 数据存于 SQLite（WAL 模式），驱动已打入 jar，无需额外安装数据库
 
 ## 环境依赖
 
@@ -27,45 +30,51 @@
 | [Paper 26.1.2](https://papermc.io/downloads) | 服务端（需 Java 25+） |
 | [Vault](https://www.spigotmc.org/resources/vault.34315/) | 经济接口，需要已注册的经济实现（如 EssentialsX / CMI 等） |
 
+> 未安装 Vault（或 Vault 没有可用经济实现）时插件仍会加载，但所有交易操作都会
+> 提示「服务器未接入经济插件」并拒绝执行。
+
 ## 安装
 
 1. 服务器安装 Paper 26.1.2（需 Java 25+）。
 2. 安装 Vault 以及任意经济插件（如 EssentialsX / CMI / 其他支持 Vault 的经济插件）。
 3. 把 `build/libs/EnGlobalMarket-<版本>.jar` 放入服务器的 `plugins` 文件夹。
 4. 启动服务器，插件会自动生成 `plugins/EnGlobalMarket/config.yml` 和 `market.db`。
-5. 修改配置后执行 `/market reload` 重载。
+5. 修改配置后执行 `/market reload` 重载（重读 config.yml、修正税率并重新计算过期检查间隔）。
 
-## 命令
+## 命令与权限
 
 | 命令 | 说明 | 权限 |
 | --- | --- | --- |
 | `/market`、`/gm`、`/globalmarket` | 打开全球市场 | `englobalmarket.use`（默认所有人可用） |
 | `/market reload` | 重载配置 | `englobalmarket.admin`（默认 op） |
 
+`/market reload` 支持 Tab 补全（仅对拥有 `englobalmarket.admin` 的玩家显示）。
+
 ## 使用说明
 
-- 市场界面每页展示 36 件商品（每件占 1 格，支持翻页），底部按钮：
-  上一页 / 管理我的商品 / 创建商店 / 退出 / 下一页。
-- 点击他人商品 → 确认购买界面，确认后整组成交，不能购买自己的商品。
-- 创建商店：把物品放入第一格 → 点击绿宝石用铁砧输入整组总价 → 点击确认上架。
-- 管理我的商品：查看/修改价格/下架自己的商品；下架或过期物品进入个人收货箱，
-  背包放得下时上线自动投递，也可以打开「收货箱」手动领取。
+- **浏览**：`/market` 打开 45 格市场，0–35 为商品格（按上架时间倒序，每页 36 件），
+  底部为 上一页 / 我的商品 / 创建商店 / 退出 / 下一页。
+- **购买**：点他人商品 → 确认界面 → 整组成交，物品直接进背包（放不下则掉在脚下）；
+  点自己的商品则直接进入该商品的管理界面。
+- **上架**：创建商店 → 物品放入第一格 → 点绿宝石 → 聊天栏输入整组总价
+  （60 秒内有效，`cancel` 取消，上限 10 亿）→ 点「确认上架」。
+- **管理**：改价（同样在聊天栏输入）或下架；下架物品直接回背包，放不下才进收货箱；
+  过期商品自动进收货箱，上线时自动投递，也可在「我的商品」里手动领取。
 
-## 规则与配置（plugins/EnGlobalMarket/config.yml）
+## 配置
 
-- `economy.tax-rate`：成交税率（小数），默认 `0.05`（5%），税从卖家所得中扣除，
-  买家支付挂牌价。卖家实收 = 售价 × (1 − 税率)，向下取整到 2 位小数。
-- `economy.currency-name`：货币显示名称。
-- `market.expire-days`：未售出多少天后自动下架退回，默认 `7`。
-- `market.max-listings-per-player`：每名玩家同时上架上限，默认 `20`。
-- `market.check-interval-minutes`：过期检查间隔，默认 `5` 分钟（启服时立即检查一次）。
-- `gui.*`：各界面标题；`messages.*`：提示消息（支持 `&` 颜色代码）。
+税率、货币名、商品有效期 / 上架上限 / 检查间隔、界面标题、全部提示文案的说明与取值范围，
+都写在 `plugins/EnGlobalMarket/config.yml` 的注释里。改完执行 `/market reload` 生效。
 
 ## 数据存储
 
-商品与收货箱数据保存在 SQLite（`plugins/EnGlobalMarket/market.db`），
-物品以序列化字节完整保存（含附魔、NBT、自定义物品）。SQLite 驱动已打入 jar，
-无需额外安装数据库。
+商品与收货箱数据保存在 SQLite（`plugins/EnGlobalMarket/market.db`，WAL 模式），
+表 `listings` 与 `claims`；物品以 `ItemStack` 序列化字节完整保存（含附魔、NBT、自定义物品）。
+SQLite 驱动已打入 jar，无需额外安装数据库。
+
+界面展示的商品图标是副本，会临时清空 `PersistentDataContainer`，避免其他插件
+（如 EzStrengthen）注册的「打开容器即按 PDC 重建 lore」监听覆盖市场信息行；
+存储与成交仍使用带完整 PDC 的原物品。
 
 > 注意：sqlite-jdbc 的 JNI 原生库按原包名 `org.sqlite.core.NativeDB` 查找类，
 > 因此该驱动未做包重定位，请勿与其他同样内置 sqlite-jdbc 的插件同时使用。
@@ -84,7 +93,13 @@ gradlew.bat build
 ./gradlew build
 ```
 
-产物位于 `build/libs/EnGlobalMarket-<版本>.jar`（含 SQLite 驱动的单个 jar）。
+产物为 `build/libs/EnGlobalMarket-<版本>.jar`（shadowJar，已含 SQLite 驱动，部署用这个）；
+同目录的 `EnGlobalMarket-<版本>-thin.jar` 是不含依赖的精简包，不要拿去开服。
+单独跑单元测试（价格解析/税率计算与钳制/分页/过期计算/剩余时间显示，含边界与随机不变量）：
+
+```bash
+./gradlew test
+```
 
 ## License
 
