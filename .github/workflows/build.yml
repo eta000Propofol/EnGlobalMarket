@@ -1,0 +1,76 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支/标签的新推送取消旧任务
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # build 依赖 shadowJar，会同时跑单元测试
+      - name: Build & test
+        run: ./gradlew build --stacktrace
+
+      # 只上传可部署的完整 jar，排除不含依赖的 thin 包
+      - name: Upload plugin jar
+        uses: actions/upload-artifact@v7
+        with:
+          name: EnGlobalMarket-jar
+          path: |
+            build/libs/EnGlobalMarket-*.jar
+            !build/libs/*-thin.jar
+          if-no-files-found: error
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report
+          path: build/reports/tests/test
+          if-no-files-found: ignore
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download jar
+        uses: actions/download-artifact@v8
+        with:
+          name: EnGlobalMarket-jar
+          path: dist
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/EnGlobalMarket-*.jar
+          generate_release_notes: true
+          fail_on_unmatched_files: true
